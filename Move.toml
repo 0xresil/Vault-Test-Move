@@ -1,0 +1,12 @@
+[package]
+name = 'VaultTest'
+version = '1.0.0'
+
+[dependencies.AptosFramework]
+git = 'https://github.com/aptos-labs/aptos-core.git'
+rev = 'main'
+subdir = 'aptos-move/framework/aptos-framework'
+
+[addresses]
+AptosFramework = "0x1"
+VaultTest = "05c647a9f4ab1546ae4b3131aaf224501c3832f6f8e428b4cfa7198141a572b9"
