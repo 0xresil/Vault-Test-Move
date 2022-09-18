@@ -6,6 +6,7 @@ module VaultTest::Vault {
   use std::vector;
   use aptos_std::type_info;
   use aptos_framework::coin;
+  use aptos_framework::coin::Coin;
   use aptos_framework::account;
 
   /* Errors. */
@@ -28,10 +29,9 @@ module VaultTest::Vault {
     is_paused: u8,
   }
 
-  struct VaultInfo has key, store {
-    amount: u64,
-    deposit_coin_addr: address,
-    signer_cap: account::SignerCapability,
+  struct VaultInfo<phantom CoinType> has key {
+    user_addr: address,
+    coin: Coin<CoinType>,
   }
 
   /* entry functions */
@@ -46,7 +46,7 @@ module VaultTest::Vault {
     });
   }
 
-  public entry fun deposit<CoinType>(account: &signer, amount: u64) acquires VaultInfo, AppInfo {
+  public entry fun deposit<CoinType>(account: &signer, amount: u64) acquires AppInfo, VaultInfo {
 
     let app_addr = account::create_resource_address(&@VaultTest, APP_INFO_SEED);
     // check if app exists
@@ -57,27 +57,24 @@ module VaultTest::Vault {
     assert!(app_info.is_paused == 0, error::permission_denied(EAPP_IS_PAUSED));
 
     let coin_addr = coin_address<CoinType>();
-  
+    // get vault address with the mixed seed (coin_addr + vault seed)
     let vault_addr = account::create_resource_address(&account_addr, seed_with_address(coin_addr, VAULT_SEED));
-    if (!exists<VaultInfo>(vault_addr)) {
+
+    // withdraw coin from the account
+    let coin: Coin<CoinType> = coin::withdraw(account, amount);
+    if (!exists<VaultInfo<CoinType>>(vault_addr)) {
       // if it is first deposit, move VaultInfo resource to account
-      let (vault, vault_signer_cap) = account::create_resource_account(account, seed_with_address(coin_addr, VAULT_SEED));
-      move_to<VaultInfo>(&vault, VaultInfo {
-          amount,
-          deposit_coin_addr: coin_addr,
-          signer_cap: vault_signer_cap
+      let (vault, _) = account::create_resource_account(account, seed_with_address(coin_addr, VAULT_SEED));
+      move_to<VaultInfo<CoinType>>(&vault, VaultInfo<CoinType> {
+        user_addr: account_addr,
+        coin
       });
       coin::register<CoinType>(&vault);
     } else {
       // if already deposited, then update vault_info
-      let vault_info = borrow_global_mut<VaultInfo>(vault_addr);
-      vault_info.amount = vault_info.amount + amount;
-        
-      check_coin_type<CoinType>(vault_info.deposit_coin_addr);
+      let vault_info = borrow_global_mut<VaultInfo<CoinType>>(vault_addr);
+      coin::merge<CoinType>(&mut vault_info.coin, coin);
     };
-    
-    // deposit coin to vault
-    coin::transfer<CoinType>(account, vault_addr, amount);
   }
 
   public entry fun withdraw<CoinType>(account: &signer, amount: u64) acquires VaultInfo, AppInfo {
@@ -89,23 +86,16 @@ module VaultTest::Vault {
 
     let coin_addr = coin_address<CoinType>();
     let vault_addr = account::create_resource_address(&account_addr, seed_with_address(coin_addr, VAULT_SEED));
-    assert!(exists<VaultInfo>(vault_addr), error::not_found(EVAULT_NOT_EXISTS));
+    assert!(exists<VaultInfo<CoinType>>(vault_addr), error::not_found(EVAULT_NOT_EXISTS));
 
-    // update user's stake amount in stakeInfo
-    let vault_info = borrow_global_mut<VaultInfo>(vault_addr);
-    assert!(amount <= vault_info.amount, error::invalid_argument(EINVALID_VALUE));
-    vault_info.amount = vault_info.amount - amount;
+    // extract coin in vault info and deposit to user's account
+    let vault_info = borrow_global_mut<VaultInfo<CoinType>>(vault_addr);
+    let withdraw_coin = coin::extract<CoinType>(&mut vault_info.coin, amount);
+    coin::deposit<CoinType>(account_addr, withdraw_coin);
     
     // check if app is paused
     let app_info = borrow_global_mut<AppInfo>(app_addr); 
     assert!(app_info.is_paused == 0, error::permission_denied(EAPP_IS_PAUSED));
-
-    // check coin type
-    check_coin_type<CoinType>(vault_info.deposit_coin_addr);
-
-    // transfer to user
-    let vault_account_from_cap = account::create_signer_with_capability(&vault_info.signer_cap);
-    coin::transfer<CoinType>(&vault_account_from_cap, account_addr, amount);
   }
 
   public entry fun pause(account: &signer) acquires AppInfo {
@@ -272,30 +262,28 @@ module VaultTest::Vault {
       assert!(coin::balance<CoinA>(alice_addr) == 9500, error::invalid_argument(EINVALID_BALANCE));
 
       let alice_coin_a_vault_addr = account::create_resource_address(&alice_addr, seed_with_address(coin_address<CoinA>(), VAULT_SEED));
-      assert!(coin::balance<CoinA>(alice_coin_a_vault_addr) == 500, error::invalid_argument(EINVALID_BALANCE));
+      let vault_info = borrow_global<VaultInfo<CoinA>>(alice_coin_a_vault_addr);
+      assert!(coin::value<CoinA>(&vault_info.coin) == 500, error::invalid_argument(EINVALID_BALANCE));
 
-      let vault_info = borrow_global<VaultInfo>(alice_coin_a_vault_addr);
-      assert!(vault_info.amount == 500, error::invalid_argument(EINVALID_BALANCE));
+      deposit<CoinA>(&alice, 500);
+      assert!(coin::balance<CoinA>(alice_addr) == 9000, error::invalid_argument(EINVALID_BALANCE));
+      let vault_info = borrow_global<VaultInfo<CoinA>>(alice_coin_a_vault_addr);
+      assert!(coin::value<CoinA>(&vault_info.coin) == 1000, error::invalid_argument(EINVALID_BALANCE));
       
       // alice withdraw 300 coinA
       withdraw<CoinA>(&alice, 300);
-      assert!(coin::balance<CoinA>(alice_addr) == 9800, error::invalid_argument(EINVALID_BALANCE));
-      assert!(coin::balance<CoinA>(alice_coin_a_vault_addr) == 200, error::invalid_argument(EINVALID_BALANCE));
-
-      let vault_info = borrow_global<VaultInfo>(alice_coin_a_vault_addr);
-      assert!(vault_info.amount == 200, error::invalid_argument(EINVALID_BALANCE));
+      assert!(coin::balance<CoinA>(alice_addr) == 9300, error::invalid_argument(EINVALID_BALANCE));
+      let vault_info = borrow_global<VaultInfo<CoinA>>(alice_coin_a_vault_addr);
+      assert!(coin::value<CoinA>(&vault_info.coin) == 700, error::invalid_argument(EINVALID_BALANCE));
 
       // bob deposit 500 CoinA
       deposit<CoinB>(&bob, 500);
       assert!(coin::balance<CoinB>(bob_addr) == 9500, error::invalid_argument(EINVALID_BALANCE));
 
-      let bob_coin_b_vault_addr = account::create_resource_address(&bob_addr, seed_with_address(coin_address<CoinB>(), VAULT_SEED));
-      assert!(coin::balance<CoinB>(bob_coin_b_vault_addr) == 500, error::invalid_argument(EINVALID_BALANCE));
-      
+      //let bob_coin_b_vault_addr = account::create_resource_address(&bob_addr, seed_with_address(coin_address<CoinB>(), VAULT_SEED));
       // bob withdraw 300 coinA
       withdraw<CoinB>(&bob, 300);
       assert!(coin::balance<CoinB>(bob_addr) == 9800, error::invalid_argument(EINVALID_BALANCE));
-      assert!(coin::balance<CoinB>(bob_coin_b_vault_addr) == 200, error::invalid_argument(EINVALID_BALANCE));
-      
   }
+  
 }

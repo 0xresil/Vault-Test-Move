@@ -17,17 +17,13 @@ Here, I save admin info.
 VaultInfo resource will store the deposited coins and also will have deposited coin type and amount.
 
 ```
-  struct VaultInfo has key, store {
-    amount: u64,
-    deposit_coin_addr: address,
-    signer_cap: account::SignerCapability,
+  struct VaultInfo<phantom CoinType> has key {
+    user_addr: address,
+    coin: Coin<CoinType>,
   }
 ```
-- `amount` here represents the deposited amount in the vault.
-- `deposit_coin_addr` stores the address of coin module
-- `singer_cap` is the capability to sign instead of vault account.
-  (Its usage is similar to bump on solana
-  )
+- `user_addr` is the address of the user who deposited to this vault
+- `coin` represents what user deposited
 
 ## Functions
 - initialize_app
