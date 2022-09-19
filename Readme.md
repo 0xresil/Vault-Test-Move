@@ -1,9 +1,9 @@
 ## AppInfo resource
-AppInfo resource will be located at resource account which address is derived from contract address with 'APP_SEED' as a seed string.
+AppInfo resource will be located at app module account.
 
 Here, I save admin info.
 ```
-  struct AppInfo has key, store {
+  struct AppInfo has key {
     admin_addr: address,
     is_paused: u8,
   }
@@ -14,15 +14,13 @@ Here, I save admin info.
 - `admin_addr` stores the address of admin of platform and `is_paused` represents the status of app.
 
 ## VaultInfo resource
-VaultInfo resource will store the deposited coins and also will have deposited coin type and amount.
+VaultInfo resource will store the deposited coins.
 
 ```
   struct VaultInfo<phantom CoinType> has key {
-    user_addr: address,
     coin: Coin<CoinType>,
   }
 ```
-- `user_addr` is the address of the user who deposited to this vault
 - `coin` represents what user deposited
 
 ## Functions
@@ -30,10 +28,9 @@ VaultInfo resource will store the deposited coins and also will have deposited c
 > Initialize the app only one time by the contract account.
 And create AppInfo resource account here/.
 - deposit
-> Deposit coins to user's VaultInfo resource account.
-`VaultInfo` resource account varies per users and deposit coin types.
+> Deposit coins to user's VaultInfo resource.
 - withdraw
-> Withdraw coins from user's VaultInfo resource account to User's wallet
+> Withdraw coins from user's VaultInfo resource to User's wallet
 - pause
 > Admin can pause the site to stop withdraw and deposit.
 Here, I admin set `is_paused` variable in `app_info` as 1.
